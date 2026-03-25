@@ -258,6 +258,55 @@ A world model [3] was trained to predict the next token given a context of past 
 
 [./compression/compress.py](./compression/compress.py) for an example of how to compress the tokens using lzma
 
+## Local Student Submission Improvements
+
+This repository now also includes a self-contained student-based lossless compressor that was tuned specifically to push the local compression rate beyond `2.2x` without requiring the original GPT checkpoint at decode time.
+
+### Method Used
+
+The final path keeps the original challenge format and lossless requirement, but replaces the baseline compressor with:
+
+- a frame-level student predictor in [./student_model.py](./student_model.py)
+- deterministic arithmetic coding in [./strong_compression/student_codec.py](./strong_compression/student_codec.py)
+- a compact archive format in [./strong_compression/student_archive.py](./strong_compression/student_archive.py)
+- an autocontained submission builder in [./build_student_submission.py](./build_student_submission.py)
+
+The key improvement was not a brand new architecture. The winning change was training the same student on much longer real contexts from full `1200`-frame segments instead of stopping at very short windows. That reduced the model cross-entropy enough for the final q8 submission artifact to cross `2.2x` locally.
+
+### Why This Solution Is Good
+
+- It is strictly lossless: decoded output matches the original tokens bit-for-bit.
+- It is autocontained: decode does not download or depend on the GPT checkpoint.
+- It is practical on Apple Silicon: the final path runs on a MacBook Air M3 with `mps` or `cpu`.
+- It is compact: the final quantized student artifact is small enough to package cleanly inside the submission zip.
+
+### Final Local Result
+
+The best local submission candidate is documented in [./RESULTS_STUDENT_LONG_FINAL.md](./RESULTS_STUDENT_LONG_FINAL.md).
+
+Headline numbers:
+
+- `2 x 1200` frames: `4.5355` archive bits/token, `2.2048x`
+- `4 x 1200` frames: `4.5296` archive bits/token, `2.2077x`
+
+Main files for that path:
+
+- [./compress_student.py](./compress_student.py)
+- [./decompress_student.py](./decompress_student.py)
+- [./quantize_student.py](./quantize_student.py)
+- [./train_student_final.py](./train_student_final.py)
+- [./benchmark_student_final.py](./benchmark_student_final.py)
+- final q8 artifact: `artifacts/student_full1200_ft3_q8.bin`
+
+### Future Improvements
+
+The most promising next steps are still aligned with this same path:
+
+- train on a broader slice of full-length segments instead of small validation-oriented subsets
+- continue long-context fine-tuning from `student_full1200_ft3`
+- improve calibration and benchmark coverage on larger shard sets
+- reduce submission size further without changing the lossless decode path
+
 ## Download the dataset
 - Using huggingface datasets
 ```python

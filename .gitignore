@@ -1,6 +1,7 @@
 *.zip
 compression/compression_challenge_submission
 compression/compression_challenge_submission_decompressed/
+commavq_data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
