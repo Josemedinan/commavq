@@ -23,6 +23,7 @@ STUDENT_ARCHIVE_MODE = "arith_student_frame"
 class StudentCompressionConfig:
   runtime: StudentRuntimeConfig = field(default_factory=StudentRuntimeConfig)
   count_total: int = 1 << 15
+  seed_frames: int | None = None
 
 
 def _quantize_prob_rows_cpu(prob_rows: np.ndarray, total: int) -> np.ndarray:
@@ -63,6 +64,29 @@ def _group_segment_indices_by_frames(flat_segments: list[np.ndarray]) -> dict[in
   return dict(sorted(groups.items()))
 
 
+def _effective_seed_frames(configured_seed_frames: int | None, *, context_frames: int, frames: int) -> int:
+  default_seed_frames = context_frames if configured_seed_frames is None else int(configured_seed_frames)
+  if default_seed_frames < 0:
+    raise ValueError(f"seed_frames must be non-negative, got {default_seed_frames}")
+  return min(default_seed_frames, frames)
+
+
+def _build_padded_context(batch_flat: np.ndarray, *, frame_index: int, context_frames: int) -> np.ndarray:
+  if frame_index <= 0:
+    return np.zeros((batch_flat.shape[0], context_frames, TOKENS_PER_FRAME), dtype=np.int32)
+  start = max(0, frame_index - context_frames)
+  context = batch_flat[:, start:frame_index]
+  available = int(context.shape[1])
+  if available == context_frames:
+    return context
+  pad_count = context_frames - available
+  if available > 0:
+    pad = np.repeat(context[:, :1], pad_count, axis=1)
+  else:
+    pad = np.zeros((batch_flat.shape[0], pad_count, TOKENS_PER_FRAME), dtype=np.int32)
+  return np.concatenate([pad, context], axis=1)
+
+
 def _encode_row(encoder: ArithmeticEncoder, stats: CodelengthStats, cumulative: np.ndarray, tokens: np.ndarray, total: int) -> None:
   for position, token in enumerate(tokens.tolist()):
     low = int(cumulative[position, token])
@@ -75,6 +99,7 @@ def measure_student_bits_per_token(
   segments: list[Segment],
   *,
   runtime: StudentRuntime,
+  seed_frames: int | None = None,
 ) -> dict[str, float | int]:
   total_bits = 0.0
   total_predicted_tokens = 0
@@ -83,14 +108,14 @@ def measure_student_bits_per_token(
 
   flat_segments = [flatten_tokens(segment.tokens) for segment in segments]
   for frames, indices in _group_segment_indices_by_frames(flat_segments).items():
-    seed_frames = min(runtime.context_frames, frames)
+    effective_seed_frames = _effective_seed_frames(seed_frames, context_frames=runtime.context_frames, frames=frames)
     batch_size = runtime.config.batch_size
     for batch_start in range(0, len(indices), batch_size):
       batch_indices = indices[batch_start:batch_start + batch_size]
       batch_flat = np.stack([flat_segments[index] for index in batch_indices]).astype(np.int32, copy=False)
       total_tokens += int(batch_flat.size)
-      for frame_index in range(seed_frames, frames):
-        context = batch_flat[:, frame_index - runtime.context_frames:frame_index]
+      for frame_index in range(effective_seed_frames, frames):
+        context = _build_padded_context(batch_flat, frame_index=frame_index, context_frames=runtime.context_frames)
         probs, seconds = runtime.predict_probs(context)
         total_seconds += seconds
         targets = batch_flat[:, frame_index].astype(np.int64, copy=False)
@@ -131,12 +156,12 @@ def compress_student_segments(
 
   start_time = time.perf_counter()
   for frames, indices in _group_segment_indices_by_frames(flat_segments).items():
-    seed_frames = min(runtime.context_frames, frames)
+    seed_frames = _effective_seed_frames(config.seed_frames, context_frames=runtime.context_frames, frames=frames)
     for batch_start in range(0, len(indices), runtime.config.batch_size):
       batch_indices = indices[batch_start:batch_start + runtime.config.batch_size]
       batch_flat = np.stack([flat_segments[index] for index in batch_indices]).astype(np.int32, copy=False)
       for frame_index in range(seed_frames, frames):
-        context = batch_flat[:, frame_index - runtime.context_frames:frame_index]
+        context = _build_padded_context(batch_flat, frame_index=frame_index, context_frames=runtime.context_frames)
         probs, seconds = runtime.predict_probs(context)
         predict_seconds += seconds
         cumulative = _quantize_prob_rows_cpu(probs, config.count_total)
@@ -160,7 +185,7 @@ def compress_student_segments(
   for index, segment in enumerate(segments):
     flat = flat_segments[index]
     frames = int(flat.shape[0])
-    seed_frames = min(runtime.context_frames, frames)
+    seed_frames = _effective_seed_frames(config.seed_frames, context_frames=runtime.context_frames, frames=frames)
     seed_tokens = flat[:seed_frames]
     seed_bytes = pack_uint10(seed_tokens)
     payload = encoders[index].finish()
@@ -198,6 +223,7 @@ def compress_student_segments(
     "total_tokens": total_tokens,
     "predicted_tokens": predicted_tokens,
     "raw_seed_tokens": raw_seed_tokens,
+    "seed_frames": config.seed_frames if config.seed_frames is not None else runtime.context_frames,
     "logical_original_bytes": logical_original_bytes,
     "compressed_bytes": len(archive_bytes),
     "payload_bytes": payload_bytes,
@@ -268,13 +294,16 @@ def decompress_student_archive(
 
   for frames in sorted(grouped_indices):
     indices = grouped_indices[frames]
-    seed_frames = min(runtime.context_frames, frames)
     for batch_start in range(0, len(indices), runtime.config.batch_size):
       batch_indices = indices[batch_start:batch_start + runtime.config.batch_size]
       batch_flat = np.stack([flat_outputs[index] for index in batch_indices]).astype(np.int32, copy=True)
       batch_decoders = [decoder_states[index] for index in batch_indices]
-      for frame_index in range(seed_frames, frames):
-        context = batch_flat[:, frame_index - runtime.context_frames:frame_index]
+      batch_seed_frames = min(int(records[index]["seed_frames"]) for index in batch_indices)
+      for frame_index in range(batch_seed_frames, frames):
+        incomplete_offsets = [offset for offset, record_index in enumerate(batch_indices) if frame_index < int(records[record_index]["seed_frames"])]
+        if incomplete_offsets:
+          continue
+        context = _build_padded_context(batch_flat, frame_index=frame_index, context_frames=runtime.context_frames)
         probs, seconds = runtime.predict_probs(context)
         predict_seconds += seconds
         cumulative = _quantize_prob_rows_cpu(probs, count_total)

@@ -1,0 +1,28 @@
+{
+  "adapter_rank": 16,
+  "best_val_bits_per_token": 4.965027390319096,
+  "history": [
+    {
+      "epoch": 1,
+      "epoch_seconds": 1024.1008708750014,
+      "train_accuracy": 0.4006537543402778,
+      "train_bits_per_token": 4.766286922150253,
+      "val_accuracy": 0.3612521701388889,
+      "val_bits_per_token": 4.965027390319096
+    }
+  ],
+  "init_checkpoint": "artifacts/student_adapter16_full_ft1.pt",
+  "initial_val": {
+    "accuracy": 0.3612456597222222,
+    "bits_per_token": 4.966222516678034,
+    "loss": 3.442323135468695,
+    "seconds": 56.39718608300609,
+    "tokens": 1843200,
+    "tokens_per_second": 32682.481662953094
+  },
+  "output": "artifacts/student_adapter16_full_ft2.pt",
+  "seed_frames": 0,
+  "train_segments": 96,
+  "trainable_parameters": 19984,
+  "val_segments": 12
+}

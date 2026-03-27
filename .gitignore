@@ -2,6 +2,11 @@
 compression/compression_challenge_submission
 compression/compression_challenge_submission_decompressed/
 commavq_data/
+artifacts/*
+!artifacts/benchmark_student_adapter16_full_ft2_q8_c1073741824_heldout.json
+!artifacts/student_adapter16_full_ft2.pt
+!artifacts/student_adapter16_full_ft2_metrics.json
+!artifacts/student_adapter16_full_ft2_q8.bin
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -20,7 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
   parser.add_argument("--precision", choices=["float32", "float16", "bfloat16"], default="float32", help="Model precision")
   parser.add_argument("--batch-size", type=int, default=16, help="Batch size across segments")
   parser.add_argument("--temperature", type=float, default=None, help="Optional logit temperature override; defaults to checkpoint metadata or 1.0")
-  parser.add_argument("--count-total", type=int, default=32768, help="Total arithmetic count after probability quantization")
+  parser.add_argument("--count-total", type=int, default=1 << 30, help="Total arithmetic count after probability quantization")
+  parser.add_argument("--seed-frames", type=int, default=0, help="How many initial frames per segment to store raw before padded-context prediction")
   return parser
 
 
@@ -36,6 +37,7 @@ def main() -> None:
       temperature=args.temperature,
     ),
     count_total=args.count_total,
+    seed_frames=args.seed_frames,
   )
   archive_bytes, report = compress_student_segments(segments, config=config)
   save_archive(args.output, archive_bytes)

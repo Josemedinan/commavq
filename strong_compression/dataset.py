@@ -32,6 +32,7 @@ def load_segments(
   *,
   root: str | Path = ".",
   limit_segments: int | None = None,
+  limit_per_shard: int | None = None,
   max_frames: int | None = None,
 ) -> list[Segment]:
   root_path = Path(root)
@@ -40,12 +41,16 @@ def load_segments(
     shard_path = _normalize_shard_path(root_path, shard)
     with tarfile.open(shard_path, "r:gz") as tar:
       names = sorted(name for name in tar.getnames() if name.endswith(".token.npy"))
+      shard_count = 0
       for name in names:
         with tar.extractfile(name) as handle:
           tokens = np.load(io.BytesIO(handle.read()))
         if max_frames is not None:
           tokens = tokens[:max_frames]
         segments.append(Segment(name=name, tokens=tokens.astype(np.int16, copy=False), shard=shard_path.name))
+        shard_count += 1
         if limit_segments is not None and len(segments) >= limit_segments:
           return segments
+        if limit_per_shard is not None and shard_count >= limit_per_shard:
+          break
   return segments

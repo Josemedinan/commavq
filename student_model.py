@@ -22,6 +22,7 @@ class StudentPredictorConfig:
   ff_mult: int = 4
   dropout: float = 0.1
   norm_first: bool = False
+  adapter_rank: int = 0
 
   def to_dict(self) -> dict[str, Any]:
     return asdict(self)
@@ -64,6 +65,17 @@ class StudentFramePredictor(nn.Module):
     self.spatial_encoder = nn.TransformerEncoder(spatial_layer, num_layers=config.spatial_layers)
     self.final_norm = nn.LayerNorm(config.d_model)
     self.out_proj = nn.Linear(config.d_model, config.vocab_size)
+    self.adapter_rank = int(config.adapter_rank)
+    if self.adapter_rank > 0:
+      self.adapter_down = nn.Linear(config.d_model, self.adapter_rank)
+      self.adapter_up = nn.Linear(self.adapter_rank, config.vocab_size)
+      self.adapter_act = nn.GELU()
+      nn.init.zeros_(self.adapter_up.weight)
+      nn.init.zeros_(self.adapter_up.bias)
+    else:
+      self.adapter_down = None
+      self.adapter_up = None
+      self.adapter_act = None
 
     self.register_buffer("_position_ids", torch.arange(config.tokens_per_frame, dtype=torch.long), persistent=False)
     self.register_buffer("_frame_ids", torch.arange(config.context_frames, dtype=torch.long), persistent=False)
@@ -99,7 +111,10 @@ class StudentFramePredictor(nn.Module):
     # Spatial refinement lets positions exchange information before the final logits.
     x = self.spatial_encoder(x)
     x = self.final_norm(x)
-    return self.out_proj(x)
+    logits = self.out_proj(x)
+    if self.adapter_rank > 0:
+      logits = logits + self.adapter_up(self.adapter_act(self.adapter_down(x)))
+    return logits
 
 
 def count_parameters(model: nn.Module) -> int:

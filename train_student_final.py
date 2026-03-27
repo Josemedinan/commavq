@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
   parser.add_argument("--train-segments", type=int, default=96, help="Number of segments used for training")
   parser.add_argument("--val-segments", type=int, default=16, help="Number of segments used for validation")
   parser.add_argument("--max-frames", type=int, default=32, help="Frames per segment to load")
+  parser.add_argument("--limit-per-shard", type=int, default=None, help="Optional cap on how many segments to load from each shard")
+  parser.add_argument("--seed-frames", type=int, default=None, help="How many initial frames stay raw during training/eval; defaults to model context")
   parser.add_argument("--epochs", type=int, default=3, help="Fine-tuning epochs")
   parser.add_argument("--batch-size", type=int, default=16, help="Training batch size")
   parser.add_argument("--eval-batch-size", type=int, default=32, help="Validation batch size")
@@ -164,6 +166,7 @@ def main() -> None:
     args.shards,
     root=".",
     limit_segments=args.train_segments + args.val_segments,
+    limit_per_shard=args.limit_per_shard,
     max_frames=args.max_frames,
   )
   train_segments, val_segments = split_segments(
@@ -175,8 +178,16 @@ def main() -> None:
   model, payload = load_student_checkpoint(args.init_checkpoint, map_location="cpu")
   model = model.to(device=device, dtype=model_dtype)
 
-  train_dataset = StudentFrameDataset(train_segments, context_frames=model.config.context_frames)
-  val_dataset = StudentFrameDataset(val_segments, context_frames=model.config.context_frames)
+  train_dataset = StudentFrameDataset(
+    train_segments,
+    context_frames=model.config.context_frames,
+    seed_frames=args.seed_frames,
+  )
+  val_dataset = StudentFrameDataset(
+    val_segments,
+    context_frames=model.config.context_frames,
+    seed_frames=args.seed_frames,
+  )
   val_loader = DataLoader(
     val_dataset,
     batch_size=args.eval_batch_size,
@@ -226,6 +237,8 @@ def main() -> None:
       "train_segments": args.train_segments,
       "val_segments": args.val_segments,
       "max_frames": args.max_frames,
+      "limit_per_shard": args.limit_per_shard,
+      "seed_frames": args.seed_frames if args.seed_frames is not None else model.config.context_frames,
       "seed": args.seed,
       "curriculum": curriculum_report,
       "init_checkpoint": args.init_checkpoint,
@@ -284,6 +297,8 @@ def main() -> None:
           "train_segments": args.train_segments,
           "val_segments": args.val_segments,
           "max_frames": args.max_frames,
+          "limit_per_shard": args.limit_per_shard,
+          "seed_frames": args.seed_frames if args.seed_frames is not None else model.config.context_frames,
           "seed": args.seed,
           "curriculum": curriculum_report,
           "init_checkpoint": args.init_checkpoint,
@@ -300,6 +315,8 @@ def main() -> None:
     "initial_val_bits_per_token": initial_val["bits_per_token"],
     "train_examples": len(train_dataset),
     "val_examples": len(val_dataset),
+    "limit_per_shard": args.limit_per_shard,
+    "seed_frames": args.seed_frames if args.seed_frames is not None else model.config.context_frames,
     "device": device,
     "precision": args.precision,
     "curriculum": curriculum_report,

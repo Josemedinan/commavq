@@ -1,118 +1,90 @@
-# Student Long Final
+# Student Final Results
 
-## Cambio ganador
+## Final Candidate
 
-La mejora real no vino de cambiar arquitectura, sino de exponer el mismo `student` a mucha mas profundidad temporal del dataset real.
+Best self-contained model:
 
-Hecho clave:
+- `artifacts/student_adapter16_full_ft2_q8.bin`
 
-- los segmentos reales tienen `1200` frames
-- los mejores checkpoints anteriores se entrenaban solo con `32` frames por segmento
-- eso dejaba casi todo el dataset fuera del entrenamiento
+Exact held-out benchmark:
 
-Ruta final ejecutada:
+- `artifacts/benchmark_student_adapter16_full_ft2_q8_c1073741824_heldout.json`
 
-1. `student_final_curriculum.pt`
-2. fine-tune `128` frames -> `student_long128_ft.pt`
-3. fine-tune `256` frames -> `student_long256_ft.pt`
-4. fine-tune `512` frames -> `student_long512_ft.pt`
-5. fine-tune full-length `1200` frames, 2 epocas mas -> `student_full1200_ft3.pt`
+Core metrics:
 
-Artefacto final cuantizado:
+| model | predicted bpt | archive bpt | ratio | archive bytes | payload bytes | exact |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `student_adapter16_full_ft2_q8` | `3.9952` | `3.9968` | `2.5020x` | `306954` | `306834` | `true` |
 
-- `artifacts/student_full1200_ft3_q8.bin`
+This is the current best local result for the self-contained student submission path.
 
-## Calidad del modelo
+## Method
 
-Mejoras de validacion:
+The winning path keeps decode fully local and GPT-free:
 
-| checkpoint | val bpt |
-| --- | ---: |
-| `student_final_curriculum.pt` | `5.5711` |
-| `student_long128_ft.pt` | `5.3310` |
-| `student_long256_ft.pt` | `5.1278` |
-| `student_long512_ft.pt` | `4.8785` |
-| `student_full1200_ft.pt` | `4.3401` |
-| `student_full1200_ft2.pt` | `4.2656` |
-| `student_full1200_ft3.pt` | `4.2269` |
+1. train the frame-level student on full `1200`-frame segments
+2. compress with deterministic padded context using `seed_frames = 0`
+3. keep position-aware calibration in checkpoint metadata
+4. freeze the long-context backbone
+5. train a tiny residual logit adapter with rank `16`
+6. quantize the final checkpoint to q8 and package it for submission
 
-## Benchmarks reales
+The key change over the earlier `~2.48x` line was the adapter. It gave a small but real cross-entropy reduction while adding only a compact correction layer on top of the existing model.
 
-### 2 segmentos x 128 frames
+## Files Kept In Repo
 
-| model | predicted bpt | effective bpt | archive bpt | ratio |
-| --- | ---: | ---: | ---: | ---: |
-| baseline current | `5.3150` | `5.6078` | `5.6382` | `1.7736x` |
-| `long128_ft` | `4.9223` | `5.2396` | `5.2773` | `1.8949x` |
-| `long256_ft` | `4.7466` | `5.0749` | `5.1133` | `1.9557x` |
-| `long512_ft` | `4.5440` | `4.8850` | `4.9221` | `2.0316x` |
+Only the final reproducible artifacts are retained:
 
-### 2 segmentos x 512 frames
+- `artifacts/student_adapter16_full_ft2.pt`
+- `artifacts/student_adapter16_full_ft2_metrics.json`
+- `artifacts/student_adapter16_full_ft2_q8.bin`
+- `artifacts/benchmark_student_adapter16_full_ft2_q8_c1073741824_heldout.json`
 
-| model | predicted bpt | effective bpt | archive bpt | ratio |
-| --- | ---: | ---: | ---: | ---: |
-| baseline current | `5.3408` | `5.4136` | `5.4302` | `1.8415x` |
-| `long512_ft` | `4.5414` | `4.6266` | `4.6526` | `2.1493x` |
+Main code for this path:
 
-### 2 segmentos x 1200 frames
+- `student_model.py`
+- `train_student_final.py`
+- `train_student_adapter.py`
+- `compress_student.py`
+- `decompress_student.py`
+- `benchmark_student_final.py`
+- `build_student_submission.py`
+- `strong_compression/student_codec.py`
+- `strong_compression/student_runtime.py`
 
-| model | predicted bpt | effective bpt | archive bpt | ratio |
-| --- | ---: | ---: | ---: | ---: |
-| baseline current | `5.5641` | `5.5937` | `5.6038` | `1.7845x` |
-| `full1200_ft2` | `4.5186` | `4.5552` | `4.5765` | `2.1851x` |
-| `full1200_ft3` | `4.4758` | `4.5126` | `4.5355` | `2.2048x` |
+## Recommended Use
 
-## Objetivo 2.2x
+Compression:
 
-Objetivo:
+```bash
+python compress_student.py \
+  --shards /path/to/data-0000.tar.gz \
+  --model artifacts/student_adapter16_full_ft2_q8.bin \
+  --output data.bin \
+  --device auto \
+  --precision float32 \
+  --batch-size 16
+```
 
-- `2.2x` equivale a `4.5455 archive bpt`
+Decompression:
 
-Resultado local final:
+```bash
+python decompress_student.py \
+  --input data.bin \
+  --model artifacts/student_adapter16_full_ft2_q8.bin \
+  --output-dir out_tokens \
+  --device auto \
+  --precision float32 \
+  --batch-size 16
+```
 
-- `4.5355 archive bpt`
-- `2.2048x`
+The q8 artifact already carries the recommended temperature metadata, and the default arithmetic resolution in the compressor is set to the winning high-precision setting.
 
-Eso cruza el objetivo localmente en el benchmark de `4 segmentos completos x 1200 frames`:
+## Honest Summary
 
-| subset | archive bpt | ratio |
-| --- | ---: | ---: |
-| `4 x 1200`, `student_full1200_ft3_q8.bin` | `4.5296` | `2.2077x` |
+This repository now contains a clean final path that:
 
-## Submission candidate
-
-Archive construido:
-
-- `artifacts/student_full1200_ft3_4seg.bin`
-
-Zip autocontenido:
-
-- `artifacts/student_full1200_ft3_submission.zip`
-
-Tree standalone:
-
-- `artifacts/student_full1200_ft3_tree`
-
-Validacion standalone:
-
-- `decompress.py` ejecutado contra el tree standalone: `ok`
-- reconstruccion exacta en `4` segmentos: `true`
-
-## Cambios de codigo relevantes
-
-- `strong_compression/__init__.py`
-  - se eliminaron imports pesados que estaban frenando scripts simples
-- `strong_compression/student_quantization.py`
-  - se redujo a la familia final `student_model.py`, eliminando carga de variantes experimentales
-- `strong_compression/student_submission.py`
-  - se redujo el package standalone a solo los modulos necesarios para la ruta final del student
-
-## Conclusion
-
-La ruta que funciono fue:
-
-- mantener la arquitectura student actual
-- dejar de subentrenarla con ventanas cortas
-- entrenarla progresivamente sobre secuencias reales cada vez mas largas
-
-Con eso, el student paso de un regime `~5.6 archive bpt` a uno `~4.53 archive bpt` en segmentos completos, suficiente para cruzar `2.2x` localmente sin GPT en decode.
+- is strictly lossless
+- is self-contained at decode time
+- reaches `2.5020x` locally on the exact held-out benchmark
+- keeps only the final model and benchmark artifacts instead of the full exploration trail
