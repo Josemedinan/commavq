@@ -260,7 +260,7 @@ A world model [3] was trained to predict the next token given a context of past 
 
 ## Local Student Submission Improvements
 
-This repository now also includes a self-contained student-based lossless compressor that was tuned specifically to push the local compression rate beyond `2.5x` without requiring the original GPT checkpoint at decode time.
+This repository now also includes a self-contained student-based lossless compressor that was tuned specifically to reach a local compression rate of `2.502x` without requiring the original GPT checkpoint at decode time.
 
 ### Method Used
 
@@ -279,7 +279,7 @@ The key improvement sequence was:
 - calibrate logits with position-aware temperature and bias terms
 - add a tiny residual adapter head that only learns a correction on top of the best long-context student
 
-That combination reduced cross-entropy enough for the final q8 artifact to cross `2.5x` locally while keeping decode self-contained.
+That combination reduced cross-entropy enough for the final q8 artifact to reach `2.502x` locally while keeping decode self-contained.
 
 ### Why This Solution Is Good
 
@@ -294,7 +294,7 @@ The best local submission candidate is documented in [./RESULTS_STUDENT_LONG_FIN
 
 Headline numbers:
 
-- `4 x 1200` frames held-out: `3.9968` archive bits/token, `2.5020x`
+- `4 x 1200` frames held-out: `3.9968` archive bits/token, `2.502x`
 - exact roundtrip: `true`
 - predictor path remains fully local and GPT-free at decode time
 

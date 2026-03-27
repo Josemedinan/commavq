@@ -14,7 +14,7 @@ Core metrics:
 
 | model | predicted bpt | archive bpt | ratio | archive bytes | payload bytes | exact |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `student_adapter16_full_ft2_q8` | `3.9952` | `3.9968` | `2.5020x` | `306954` | `306834` | `true` |
+| `student_adapter16_full_ft2_q8` | `3.9952` | `3.9968` | `2.502x` | `306954` | `306834` | `true` |
 
 This is the current best local result for the self-contained student submission path.
 
@@ -86,5 +86,5 @@ This repository now contains a clean final path that:
 
 - is strictly lossless
 - is self-contained at decode time
-- reaches `2.5020x` locally on the exact held-out benchmark
+- reaches `2.502x` locally on the exact held-out benchmark
 - keeps only the final model and benchmark artifacts instead of the full exploration trail
